@@ -5,11 +5,11 @@ author: Michael Li and Davey Proctor
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(echo = FALSE, results='hide', message=FALSE)
 ```
 
 
-```{r, echo=FALSE, results='hide', message=FALSE}
+```{r}
 library(ggplot2)
 library(dplyr)
 df <- read.csv("NHRR_5K_Merge_Clean.csv", as.is=T)
@@ -21,7 +21,7 @@ df <- df[df$Div != "F01-19",]
 ```
 
 
-```{r, echo=FALSE, results='hide', message=FALSE}
+```{r}
 # Arrange by year and nettime
 df %>% arrange(Year) %>% select(Year, Nettime)
 # only runners who've run every year
@@ -32,7 +32,7 @@ superRunners
 # TODO: Group trends by age
 
 ## Group: Direct age effect plot
-```{r, echo=FALSE, results='hide', message=FALSE}
+```{r}
 df %>% ggplot(aes(x=Age, y=Nettime, color=Sex)) + geom_smooth()
 # ggplot(df) + geom_smooth(data=df, aes(x=Age, y=Nettime, color=Sex), se=T)
 ```
@@ -40,7 +40,7 @@ df %>% ggplot(aes(x=Age, y=Nettime, color=Sex)) + geom_smooth()
 
 # TODO: Relativize to runner
 ## Relativize: Explore
-```{r, echo=FALSE, results='hide', message=FALSE}
+```{r}
 set.seed(123)
 names <- sample(superRunners$Name, 10)
 superRunners[superRunners$Name %in% names,]
@@ -48,7 +48,7 @@ superRunners[superRunners$Name %in% names,] %>% ggplot(aes(x=Year, y=Nettime, co
 ```
 
 ## Relativize: Stats per runner
-```{r, echo=FALSE, results='hide', message=FALSE}
+```{r}
 # lm on yearly difference for runner
 andrea <- df[df$Name == "Andrea Benjamin",]
 # andrea$Year <- andrea$Year - 2012 # not needed; affects the p-val of intercept but not slope of bestfit line.
@@ -63,71 +63,101 @@ supRunChanges <- superRunners %>% group_by(Name) %>% summarise(effectDueToYear =
 supRunChanges
 ```
 
-```{r, echo=FALSE, results='hide', message=FALSE}
+```{r}
 summary(supRunChanges$effectDueToYear)
 supRunChanges %>% ggplot(aes(x=effectDueToYear)) + geom_histogram(bins=50)
 ```
 
-## Relativize: Null hypothesis: No effect due to age. Reject p <.001.
-* Assume normal model
-```{r, echo=FALSE, results='hide', message=FALSE}
-z.test <- function(arr, x=0)
-{
-  n <- length(arr)
-  xBar <- mean(arr)
-  sdXBar <- sd(arr) / sqrt(n)
-  pnorm(x, xBar, sdXBar)
-}
-nrow(supRunChanges)
-mean(supRunChanges$effectDueToYear)
-z.test(supRunChanges$effectDueToYear)
+## Relativize: Null hypothesis: No effect due to age. Reject p <.005.
+* Assume normal model, unknown mean and variance.
+
+```{r}
+t.test(supRunChanges$effectDueToYear)
 ```
+
+
 
 # TODO: Use full dataset.
 
-```{r, echo=FALSE, results='hide', message=FALSE}
+```{r}
 df %>% group_by(Name) %>% filter(n() == 2)
 runChanges <- df %>% group_by(Name) %>% filter(n() > 2) %>% summarise(effectDueToYear = lm(Nettime ~ Year)$coefficients[["Year"]], Div=Div[[1]], Age=mean(Age), Sex=Sex[[1]], n=n(), meanNettime=mean(Nettime)) # >2 lest too heavy of tails; not remotely normal. also helps remove NAs in fits.
 # runChanges[is.na(runChanges$effectDueToYear),]
 # runChanges <- runChanges[!is.na(runChanges$effectDueToYear),]
 ```
 
-## In general, people worsen year to year. p<1e-08.
-```{r, echo=FALSE, results='hide', message=FALSE}
+## In general, people worsen year to year. p<5e-08.
+```{r}
 summary(runChanges$effectDueToYear)
-runChanges[runChanges$effectDueToYear<20,] %>% ggplot(aes(x=effectDueToYear)) + geom_histogram(bins=50)
 qqnorm(runChanges[runChanges$effectDueToYear<20,]$effectDueToYear)
+runChanges[runChanges$effectDueToYear<20,] %>% ggplot(aes(x=effectDueToYear)) + geom_histogram(bins=50)
 nrow(runChanges)
 mean(runChanges$effectDueToYear)
-z.test(runChanges$effectDueToYear)
+t.test(runChanges$effectDueToYear)
 ```
 
 ## Older people worsen fastest.
-```{r, echo=FALSE, results='hide', message=FALSE}
+```{r}
 women <- runChanges[runChanges$Sex=="F",]
 ggplot(women, aes(x=Div, y=effectDueToYear)) + geom_boxplot()
 ggplot(runChanges, aes(x=Age, y=effectDueToYear)) + geom_smooth()
 ```
 
-## More consistent runners aren't more consistent; if anything they worsen faster than the others (inconclusive, though).
-```{r, echo=FALSE, results='hide', message=FALSE}
+### Older people worsen fastest: p < 5e-16.
+```{r}
+m <- lm(effectDueToYear ~ Age, data = runChanges)
+summary(m)
+```
+
+```{r, include=FALSE}
+# Not a great linear model
+plot(m)
+plot(effectDueToYear ~ Age, data = runChanges, ylim=c(-5,5))
+abline(m)
+```
+
+
+## More consistent runners aren't more consistent. 
+The null hypothesis that there is no effect on yearly changes due to the consistency with which you run the race is supported (p>.25).
+```{r}
 # runChanges[runChanges$n > 7,] # This is odd
 # df[df$Name == "Stephen Murphy",]
 ggplot(runChanges[runChanges$n<=7 & runChanges$effectDueToYear<20,], aes(x=as.factor(n), y=effectDueToYear)) + geom_boxplot()
 #ggplot(runChanges[1:500,], aes(x=as.double(n), y=effectDueToYear)) + geom_line()
 t.test(runChanges[runChanges$n==3,]$effectDueToYear, runChanges[runChanges$n==7,]$effectDueToYear)
+m <- lm(effectDueToYear ~ n, data = runChanges)
+summary(m)
 ```
 
 ## Women aren't worsening any faster than men, and vice-versa.
-```{r, echo=FALSE, results='hide', message=FALSE}
+```{r}
 t.test(runChanges[runChanges$Sex=="F",]$effectDueToYear, runChanges[runChanges$Sex=="M",]$effectDueToYear)
 ```
 
-## Worse runners worsen more year by year.
-```{r, echo=FALSE, results='hide', message=FALSE}
+## Worse runners worsen more year by year. 
+The worse your average runtime is, the worse we expect you to be next year ($p \approx 0$).
+```{r}
 ggplot(runChanges, aes(x=meanNettime, y=effectDueToYear)) + geom_smooth()
+m <- lm(effectDueToYear ~ meanNettime, data = runChanges)
+summary(m)
 ```
 
+
+## Are you more likely to be more consistent if you're a better runner?
+* inconclusive, $p=.14$.
+```{r}
+ggplot(runChanges, aes(x=meanNettime, y=n)) + geom_smooth()
+summary(lm(n ~ meanNettime, data = runChanges))
+```
+
+## Older people are more consistent runners, p=0.
+```{r}
+ggplot(runChanges, aes(x=Age, y=n)) + geom_smooth()
+summary(lm(n ~ Age, data = runChanges))
+```
+
+
+## Focus on the best of the best runners
 
 ## Appendix
 ```{r ref.label=knitr::all_labels(), echo=T, eval=F}
